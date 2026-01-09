@@ -30,8 +30,8 @@ pip install -e .
 
 ### Custom Storage Location
 By default, the library stores credentials in:
-- **Windows**: `%APPDATA%\opencode`
-- **Linux/Mac**: `~/.config/opencode`
+- **Windows**: `%APPDATA%\antigravity_auth`
+- **Linux/Mac**: `~/.config/antigravity_auth`
 
 You can override this by setting the `ANTIGRAVITY_STORAGE_DIR` environment variable:
 
