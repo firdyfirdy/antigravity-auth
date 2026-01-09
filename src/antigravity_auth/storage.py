@@ -140,6 +140,9 @@ def get_config_dir() -> Path:
     Returns:
         Path to the config directory
     """
+    if env_dir := os.environ.get("ANTIGRAVITY_STORAGE_DIR"):
+        return Path(env_dir)
+
     if sys.platform == "win32":
         app_data = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
         return Path(app_data) / "opencode"
