@@ -313,8 +313,33 @@ def auth_test(
     except AntigravityError as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
+@app.command("serve")
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Host to bind to"),
+    port: int = typer.Option(8069, help="Port to bind to"),
+    reload: bool = typer.Option(False, help="Enable auto-reload"),
+):
+    """
+    Start the Antigravity API server (OpenAI compatible).
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]Server dependencies not installed.[/red]")
+        console.print("Run: [bold green]pip install antigravity-auth[server][/bold green]")
+        raise typer.Exit(1)
 
+    console.print(f"\n[bold green]🚀 Starting Antigravity API Server[/bold green]")
+    console.print(f"Listening on: [cyan]http://{host}:{port}[/cyan]")
+    console.print(f"OpenAI Base URL: [cyan]http://{host}:{port}/v1[/cyan]\n")
 
+    uvicorn.run(
+        "antigravity_auth.api_server.api:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info"
+    )
 @app.command("version")
 def version():
     """Show the version."""
