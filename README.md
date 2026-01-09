@@ -235,3 +235,11 @@ This project is a Python implementation of the reverse-engineered authentication
 
 - **Original Project**: [opencode-antigravity-auth](https://github.com/NoeFabris/opencode-antigravity-auth)
 - **License**: MIT
+
+## ⚠️ Disclaimer
+
+This project is for **educational and research purposes only**. It comes with no warranty or support.
+
+This library interacts with internal Google APIs solely to demonstrate the authentication flows and API mechanics described in public reverse-engineering research. It is **not** an official Google product. 
+
+Using this software may violate Google's Terms of Service. The authors and contributors are not responsible for any actions taken by users of this code, nor for any consequences that may result, including but not limited to account suspension or termination. Use at your own risk.
