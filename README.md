@@ -120,6 +120,48 @@ python -m cli.main auth logout --all
 python -m cli.main auth test -m claude-sonnet-4-5 -p "Explain quantum computing in one sentence."
 ```
 
+## 🌐 API Server (OpenAI Compatible)
+
+Run Antigravity as a local API server that's compatible with OpenAI clients.
+
+### Start the Server
+```bash
+# Install server dependencies
+pip install -e .[server]
+
+# Start server on default port 8069
+antigravity serve
+
+# Or specify host/port
+antigravity serve --host 0.0.0.0 --port 8069
+```
+
+### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/v1/models` | GET | List available models |
+| `/v1/chat/completions` | POST | Generate chat completion |
+
+### Usage with curl
+```bash
+curl http://localhost:8069/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gemini-3-pro", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+### Usage with OpenAI Python Client
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8069/v1", api_key="dummy")
+response = client.chat.completions.create(
+    model="gemini-3-pro",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)
+```
+
 ## 💻 Python API Usage
 
 Refactor your tools to use the `AntigravityService` class.
