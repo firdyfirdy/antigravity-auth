@@ -60,7 +60,7 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/antigravity", "cli"]
+packages = ["src/antigravity_auth", "cli"]
 
 [tool.black]
 line-length = 100
