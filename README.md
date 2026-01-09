@@ -26,6 +26,23 @@ cd antigravity-auth
 pip install -e .
 ```
 
+## ⚙️ Configuration
+
+### Custom Storage Location
+By default, the library stores credentials in:
+- **Windows**: `%APPDATA%\opencode`
+- **Linux/Mac**: `~/.config/opencode`
+
+You can override this by setting the `ANTIGRAVITY_STORAGE_DIR` environment variable:
+
+```bash
+# Windows
+set ANTIGRAVITY_STORAGE_DIR=C:\My\Custom\Path
+
+# Linux/Mac
+export ANTIGRAVITY_STORAGE_DIR=/path/to/custom/dir
+```
+
 ## 🚀 Quick Start (CLI)
 
 The library comes with a built-in CLI for managing authentication and testing models.

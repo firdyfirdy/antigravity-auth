@@ -145,10 +145,10 @@ def get_config_dir() -> Path:
 
     if sys.platform == "win32":
         app_data = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
-        return Path(app_data) / "opencode"
+        return Path(app_data) / "antigravity_auth"
     else:
         xdg_config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-        return Path(xdg_config) / "opencode"
+        return Path(xdg_config) / "antigravity_auth"
 
 
 def get_storage_path() -> Path:
@@ -158,7 +158,7 @@ def get_storage_path() -> Path:
     Returns:
         Path to the accounts JSON file
     """
-    return get_config_dir() / "python-antigravity-accounts.json"
+    return get_config_dir() / "accounts.json"
 
 
 def get_lock_path() -> Path:
