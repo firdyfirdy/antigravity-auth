@@ -17,7 +17,7 @@ from rich.panel import Panel
 # Add parent directory to path for imports
 sys.path.insert(0, str(__file__).rsplit("cli", 1)[0] + "src")
 
-from antigravity import (
+from antigravity_auth import (
     AntigravityService,
     AntigravityError,
     NoAccountsError,
@@ -31,8 +31,8 @@ from antigravity import (
     clear_accounts,
     get_storage_path,
 )
-from antigravity.server import OAuthListener, parse_callback_url
-from antigravity.token import parse_refresh_parts
+from antigravity_auth.server import OAuthListener, parse_callback_url
+from antigravity_auth.token import parse_refresh_parts
 
 
 app = typer.Typer(
@@ -80,11 +80,11 @@ def auth_login(
             code, state = parse_callback_url(callback_input)
             if not state:
                 # Use the state from our authorization
-                from antigravity.oauth import encode_state
+                from antigravity_auth.oauth import encode_state
                 state = encode_state(auth_result.verifier, auth_result.project_id)
         else:
             code = callback_input.strip()
-            from antigravity.oauth import encode_state
+            from antigravity_auth.oauth import encode_state
             state = encode_state(auth_result.verifier, auth_result.project_id)
         
         if not code:
@@ -101,7 +101,7 @@ def auth_login(
             code, state = parse_callback_url(callback_input)
             
             if not state:
-                from antigravity.oauth import encode_state
+                from antigravity_auth.oauth import encode_state
                 state = encode_state(auth_result.verifier, auth_result.project_id)
             
             if not code:
@@ -318,7 +318,7 @@ def auth_test(
 @app.command("version")
 def version():
     """Show the version."""
-    from antigravity import __version__
+    from antigravity_auth import __version__
     console.print(f"antigravity {__version__}")
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from antigravity import AntigravityService, NoAccountsError
+from antigravity_auth import AntigravityService, NoAccountsError
 
 
 class TestSimplePrompt:
@@ -36,7 +36,7 @@ class TestSimplePrompt:
         service = AntigravityService()
         
         # Clear any existing accounts for this test
-        from antigravity.storage import load_accounts
+        from antigravity_auth.storage import load_accounts
         storage = load_accounts()
         
         if not storage or not storage.accounts:
