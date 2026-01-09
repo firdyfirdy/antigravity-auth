@@ -47,7 +47,7 @@ dev = [
 ]
 
 [project.scripts]
-antigravity = "cli.main:main"
+antigravity = "antigravity_auth.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/firdyfirdy/opencode-antigravity-auth"
@@ -56,11 +56,10 @@ Repository = "https://github.com/firdyfirdy/opencode-antigravity-auth"
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
-    "/cli",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/antigravity_auth", "cli"]
+packages = ["src/antigravity_auth"]
 
 [tool.black]
 line-length = 100

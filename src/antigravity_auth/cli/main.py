@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(__file__).rsplit("cli", 1)[0] + "src")
+# sys.path.insert(0, str(__file__).rsplit("cli", 1)[0] + "src")
 
 from antigravity_auth import (
     AntigravityService,
