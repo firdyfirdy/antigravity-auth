@@ -52,20 +52,22 @@ Authenticate with your Google account. This opens a browser for standard Google 
 
 ```bash
 python -m cli.main auth login
+# OR
+antigravity-auth auth login
 ```
 
 ### 2. Verify Status
 Check your current login status and quota usage.
 
 ```bash
-python -m cli.main auth status
+antigravity-auth auth status
 ```
 
 ### 3. Test a Model
 Send a simple prompt to verify everything is working.
 
 ```bash
-python -m cli.main auth test --model gemini-3-pro
+antigravity-auth auth test --model gemini-3-pro
 ```
 
 ## 🤖 Supported Models & Quotas
@@ -94,30 +96,30 @@ This library automatically routes requests to the appropriate quota based on the
 
 **List all accounts:**
 ```bash
-python -m cli.main auth list
+antigravity-auth auth list
 ```
 
 **Switch active account:**
 ```bash
 # Switch to account #2
-python -m cli.main auth switch 2
+antigravity-auth auth switch 2
 ```
 
 **Logout / Remove account:**
 ```bash
 # Interactive selection
-python -m cli.main auth logout
+antigravity-auth auth logout
 
 # Remove specific email
-python -m cli.main auth logout user@example.com
+antigravity-auth auth logout user@example.com
 
 # Remove ALL accounts
-python -m cli.main auth logout --all
+antigravity-auth auth logout --all
 ```
 
 **Test with specific prompt:**
 ```bash
-python -m cli.main auth test -m claude-sonnet-4-5 -p "Explain quantum computing in one sentence."
+antigravity-auth auth test -m claude-sonnet-4-5 -p "Explain quantum computing in one sentence."
 ```
 
 ## 🌐 API Server (OpenAI Compatible)
@@ -130,10 +132,10 @@ Run Antigravity as a local API server that's compatible with OpenAI clients.
 pip install -e .[server]
 
 # Start server on default port 8069
-antigravity serve
+antigravity-auth serve
 
 # Or specify host/port
-antigravity serve --host 0.0.0.0 --port 8069
+antigravity-auth serve --host 0.0.0.0 --port 8069
 ```
 
 ### API Endpoints

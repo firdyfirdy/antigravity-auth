@@ -51,7 +51,7 @@ server = [
 ]
 
 [project.scripts]
-antigravity = "antigravity_auth.cli.main:main"
+antigravity-auth = "antigravity_auth.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/firdyfirdy/opencode-antigravity-auth"
