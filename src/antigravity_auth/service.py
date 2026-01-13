@@ -75,6 +75,7 @@ class AntigravityService:
         max_rate_limit_wait_seconds: int = 300,
         quiet_mode: bool = False,
         quota_fallback: bool = True,
+        storage_path: Optional[str] = None,
     ):
         """
         Initialize the Antigravity service.
@@ -84,11 +85,13 @@ class AntigravityService:
             max_rate_limit_wait_seconds: Maximum time to wait for rate limit reset
             quiet_mode: Suppress status messages
             quota_fallback: Enable quota fallback (antigravity -> gemini-cli)
+            storage_path: Optional custom storage path for accounts
         """
         self.model = model
         self.max_rate_limit_wait_seconds = max_rate_limit_wait_seconds
         self.quiet_mode = quiet_mode
         self.quota_fallback = quota_fallback
+        self.storage_path = storage_path
         
         self._client = AntigravityClient()
         self._account_manager: Optional[AccountManager] = None
@@ -97,7 +100,7 @@ class AntigravityService:
     def _ensure_account_manager(self) -> AccountManager:
         """Ensure the account manager is loaded."""
         if self._account_manager is None:
-            self._account_manager = AccountManager()
+            self._account_manager = AccountManager(storage_path=self.storage_path)
         return self._account_manager
     
     async def _get_auth_for_account(self, account: ManagedAccount) -> Optional[AuthDetails]:

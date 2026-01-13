@@ -5,6 +5,7 @@ Command-line interface for managing Antigravity authentication.
 """
 
 import asyncio
+import os
 import sys
 import webbrowser
 from typing import Optional
@@ -40,6 +41,7 @@ app = typer.Typer(
     help="Antigravity authentication CLI for Google Gemini and Claude models.",
     no_args_is_help=True,
 )
+
 console = Console()
 
 
@@ -50,7 +52,14 @@ app.add_typer(auth_app, name="auth")
 
 @auth_app.command("login")
 def auth_login(
+    ctx: typer.Context,
     manual: bool = typer.Option(False, "--manual", "-m", help="Use manual code entry instead of callback server"),
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
 ):
     """
     Login with a Google account to add or update an Antigravity account.
@@ -141,6 +150,7 @@ def auth_login(
         refresh_token=parts.refresh_token,
         project_id=result.project_id,
         managed_project_id=parts.managed_project_id,
+        storage_path=storage_path,
     )
     
     console.print(f"\n[green]✅ Successfully logged in as {result.email}[/green]")
@@ -148,11 +158,19 @@ def auth_login(
 
 
 @auth_app.command("list")
-def auth_list():
+def auth_list(
+    ctx: typer.Context,
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
+):
     """
     List all configured Antigravity accounts.
     """
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     
     if not storage or not storage.accounts:
         console.print("[yellow]No accounts configured. Run 'antigravity auth login' to add one.[/yellow]")
@@ -174,15 +192,24 @@ def auth_list():
         )
     
     console.print(table)
-    console.print(f"\n[dim]Storage: {get_storage_path()}[/dim]")
+    console.print(table)
+    console.print(f"\n[dim]Storage: {get_storage_path(storage_path)}[/dim]")
 
 
 @auth_app.command("status")
-def auth_status():
+def auth_status(
+    ctx: typer.Context,
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
+):
     """
     Show the current authentication status.
     """
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     
     if not storage or not storage.accounts:
         console.print(Panel.fit(
@@ -208,12 +235,19 @@ def auth_status():
 
 @auth_app.command("switch")
 def auth_switch(
+    ctx: typer.Context,
     index: int = typer.Argument(..., help="Account number to switch to (1-based)"),
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
 ):
     """
     Switch to a different account.
     """
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     
     if not storage or not storage.accounts:
         console.print("[red]No accounts configured.[/red]")
@@ -226,7 +260,7 @@ def auth_switch(
         console.print(f"[red]Invalid account number. Choose 1-{len(storage.accounts)}.[/red]")
         raise typer.Exit(1)
     
-    if set_active_account(idx):
+    if set_active_account(idx, storage_path):
         account = storage.accounts[idx]
         console.print(f"[green]Switched to account #{index}: {account.email or '(unknown)'}[/green]")
     else:
@@ -236,26 +270,34 @@ def auth_switch(
 
 @auth_app.command("logout")
 def auth_logout(
+    ctx: typer.Context,
     email: Optional[str] = typer.Argument(None, help="Email of account to remove"),
     all_accounts: bool = typer.Option(False, "--all", "-a", help="Remove all accounts"),
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
 ):
     """
     Logout and remove an account.
     """
+    
     if all_accounts:
         if typer.confirm("Are you sure you want to remove ALL accounts?"):
-            clear_accounts()
+            clear_accounts(storage_path)
             console.print("[green]All accounts removed.[/green]")
         return
     
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     
     if not storage or not storage.accounts:
         console.print("[yellow]No accounts configured.[/yellow]")
         return
     
     if email:
-        if remove_account_by_email(email):
+        if remove_account_by_email(email, storage_path):
             console.print(f"[green]Removed account: {email}[/green]")
         else:
             console.print(f"[red]Account not found: {email}[/red]")
@@ -275,7 +317,7 @@ def auth_logout(
         
         account = storage.accounts[idx]
         if account.email:
-            remove_account_by_email(account.email)
+            remove_account_by_email(account.email, storage_path)
             console.print(f"[green]Removed account: {account.email}[/green]")
         else:
             console.print("[red]Cannot remove account without email.[/red]")
@@ -284,8 +326,15 @@ def auth_logout(
 
 @auth_app.command("test")
 def auth_test(
+    ctx: typer.Context,
     prompt: str = typer.Option("What is 2 + 2? Answer in one word.", "--prompt", "-p", help="Test prompt"),
     model: str = typer.Option("gemini-3-pro", "--model", "-m", help="Model to use"),
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
 ):
     """
     Test authentication with a simple prompt.
@@ -294,7 +343,7 @@ def auth_test(
     console.print(f"[dim]Prompt: {prompt}[/dim]\n")
     
     try:
-        service = AntigravityService(model=model)
+        service = AntigravityService(model=model, storage_path=storage_path)
         response = service.generate_sync(prompt=prompt)
         
         console.print(Panel.fit(
@@ -315,9 +364,16 @@ def auth_test(
         raise typer.Exit(1)
 @app.command("serve")
 def serve(
+    ctx: typer.Context,
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8069, help="Port to bind to"),
     reload: bool = typer.Option(False, help="Enable auto-reload"),
+    storage_path: Optional[str] = typer.Option(
+        None, 
+        "--storage-path", 
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
 ):
     """
     Start the Antigravity API server (OpenAI compatible).
@@ -332,6 +388,10 @@ def serve(
     console.print(f"\n[bold green]🚀 Starting Antigravity API Server[/bold green]")
     console.print(f"Listening on: [cyan]http://{host}:{port}[/cyan]")
     console.print(f"OpenAI Base URL: [cyan]http://{host}:{port}/v1[/cyan]\n")
+    
+    if storage_path:
+        os.environ["ANTIGRAVITY_STORAGE_PATH"] = storage_path
+        console.print(f"Storage: [dim]{storage_path}[/dim]")
 
     uvicorn.run(
         "antigravity_auth.api_server.api:app",

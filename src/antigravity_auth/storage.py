@@ -151,40 +151,65 @@ def get_config_dir() -> Path:
         return Path(xdg_config) / "antigravity_auth"
 
 
-def get_storage_path() -> Path:
+def get_storage_path(path: Optional[str] = None) -> Path:
     """
     Get the path to the accounts storage file.
     
+    Args:
+        path: Optional custom path to the storage file
+        
     Returns:
         Path to the accounts JSON file
     """
+    if path:
+        return Path(path)
+    
+    if env_path := os.environ.get("ANTIGRAVITY_STORAGE_PATH"):
+        return Path(env_path)
+        
     return get_config_dir() / "accounts.json"
 
 
-def get_lock_path() -> Path:
+def get_lock_path(storage_path: Path) -> Path:
     """
-    Get the path to the lock file.
+    Get the path to the lock file based on storage path.
     
+    Args:
+        storage_path: Path to the storage file
+        
     Returns:
         Path to the lock file
     """
-    return get_config_dir() / "antigravity-accounts.lock"
-
-
-def ensure_config_dir() -> None:
-    """Ensure the configuration directory exists."""
+    # If using default config dir, keep compatible lock name
     config_dir = get_config_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
+    if storage_path.parent == config_dir and storage_path.name == "accounts.json":
+        return config_dir / "antigravity-accounts.lock"
+    
+    # Otherwise use a derived name
+    return storage_path.parent / f"{storage_path.name}.lock"
 
 
-def load_accounts_unsafe() -> Optional[AccountStorage]:
+def ensure_config_dir(storage_path: Path) -> None:
+    """
+    Ensure the configuration directory exists.
+    
+    Args:
+        storage_path: Path to the storage file
+    """
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def load_accounts_unsafe(storage_path_str: Optional[str] = None) -> Optional[AccountStorage]:
     """
     Load accounts from storage without file locking.
     
+    Args:
+        storage_path_str: Optional custom storage path
+        
     Returns:
         AccountStorage or None if file doesn't exist or is invalid
     """
-    storage_path = get_storage_path()
+    storage_path = get_storage_path(storage_path_str)
     
     if not storage_path.exists():
         return None
@@ -197,35 +222,42 @@ def load_accounts_unsafe() -> Optional[AccountStorage]:
         return None
 
 
-def load_accounts() -> Optional[AccountStorage]:
+def load_accounts(storage_path_str: Optional[str] = None) -> Optional[AccountStorage]:
     """
     Load accounts from storage with file locking.
     
+    Args:
+        storage_path_str: Optional custom storage path
+        
     Returns:
         AccountStorage or None if file doesn't exist or is invalid
     """
-    ensure_config_dir()
-    lock_path = get_lock_path()
+    storage_path = get_storage_path(storage_path_str)
+    ensure_config_dir(storage_path)
+    
+    lock_path = get_lock_path(storage_path)
     lock = FileLock(str(lock_path), timeout=10)
     
     try:
         with lock:
-            return load_accounts_unsafe()
+            return load_accounts_unsafe(storage_path_str)
     except Timeout:
         # If we can't acquire the lock, try reading anyway
-        return load_accounts_unsafe()
+        return load_accounts_unsafe(storage_path_str)
 
 
-def save_accounts(storage: AccountStorage) -> None:
+def save_accounts(storage: AccountStorage, storage_path_str: Optional[str] = None) -> None:
     """
     Save accounts to storage with file locking and atomic write.
     
     Args:
         storage: AccountStorage to save
+        storage_path_str: Optional custom storage path
     """
-    ensure_config_dir()
-    storage_path = get_storage_path()
-    lock_path = get_lock_path()
+    storage_path = get_storage_path(storage_path_str)
+    ensure_config_dir(storage_path)
+    
+    lock_path = get_lock_path(storage_path)
     lock = FileLock(str(lock_path), timeout=10)
     
     try:
@@ -255,10 +287,15 @@ def save_accounts(storage: AccountStorage) -> None:
             json.dump(storage.to_dict(), f, indent=2)
 
 
-def clear_accounts() -> None:
-    """Remove all stored accounts."""
-    storage_path = get_storage_path()
-    lock_path = get_lock_path()
+def clear_accounts(storage_path_str: Optional[str] = None) -> None:
+    """
+    Remove all stored accounts.
+    
+    Args:
+        storage_path_str: Optional custom storage path
+    """
+    storage_path = get_storage_path(storage_path_str)
+    lock_path = get_lock_path(storage_path)
     
     if storage_path.exists():
         try:
@@ -310,6 +347,7 @@ def add_or_update_account(
     refresh_token: str,
     project_id: Optional[str] = None,
     managed_project_id: Optional[str] = None,
+    storage_path: Optional[str] = None,
 ) -> AccountStorage:
     """
     Add a new account or update an existing one.
@@ -322,12 +360,13 @@ def add_or_update_account(
         refresh_token: OAuth refresh token
         project_id: Antigravity project ID
         managed_project_id: Managed project ID
+        storage_path: Optional custom storage path
         
     Returns:
         Updated AccountStorage
     """
     now = int(time.time() * 1000)
-    storage = load_accounts() or AccountStorage()
+    storage = load_accounts(storage_path) or AccountStorage()
     
     # Check if account with same email exists
     existing_index = None
@@ -362,21 +401,22 @@ def add_or_update_account(
     if storage.active_index >= len(storage.accounts):
         storage.active_index = 0
     
-    save_accounts(storage)
+    save_accounts(storage, storage_path)
     return storage
 
 
-def remove_account_by_email(email: str) -> bool:
+def remove_account_by_email(email: str, storage_path: Optional[str] = None) -> bool:
     """
     Remove an account by email address.
     
     Args:
         email: Email of account to remove
+        storage_path: Optional custom storage path
         
     Returns:
         True if account was removed, False if not found
     """
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     if not storage:
         return False
     
@@ -390,21 +430,22 @@ def remove_account_by_email(email: str) -> bool:
     if storage.active_index >= len(storage.accounts):
         storage.active_index = max(0, len(storage.accounts) - 1)
     
-    save_accounts(storage)
+    save_accounts(storage, storage_path)
     return True
 
 
-def set_active_account(index: int) -> bool:
+def set_active_account(index: int, storage_path: Optional[str] = None) -> bool:
     """
     Set the active account by index.
     
     Args:
         index: Index of account to make active
+        storage_path: Optional custom storage path
         
     Returns:
         True if successful, False if index is invalid
     """
-    storage = load_accounts()
+    storage = load_accounts(storage_path)
     if not storage or index < 0 or index >= len(storage.accounts):
         return False
     
@@ -412,5 +453,5 @@ def set_active_account(index: int) -> bool:
     storage.active_index_by_family.gemini = index
     storage.active_index_by_family.claude = index
     
-    save_accounts(storage)
+    save_accounts(storage, storage_path)
     return True

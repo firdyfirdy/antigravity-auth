@@ -125,14 +125,16 @@ class AccountManager:
     and rate limit tracking.
     """
     
-    def __init__(self, storage: Optional[AccountStorage] = None):
+    def __init__(self, storage: Optional[AccountStorage] = None, storage_path: Optional[str] = None):
         """
         Initialize the account manager.
         
         Args:
             storage: Optional pre-loaded storage, otherwise loads from disk
+            storage_path: Optional path to storage file
         """
-        self._storage = storage or load_accounts() or AccountStorage()
+        self._storage_path = storage_path
+        self._storage = storage or load_accounts(self._storage_path) or AccountStorage()
         self._accounts: List[ManagedAccount] = []
         self._active_index_by_family: Dict[str, int] = {
             MODEL_FAMILY_GEMINI: self._storage.active_index_by_family.gemini,
@@ -146,17 +148,22 @@ class AccountManager:
             self._accounts.append(ManagedAccount.from_metadata(i, metadata))
     
     @classmethod
-    async def load_from_disk(cls, current_auth: Optional[AuthDetails] = None) -> "AccountManager":
+    async def load_from_disk(
+        cls, 
+        current_auth: Optional[AuthDetails] = None,
+        storage_path: Optional[str] = None,
+    ) -> "AccountManager":
         """
         Load account manager from disk, optionally ensuring current auth is included.
         
         Args:
             current_auth: Optional current auth to ensure is in the pool
+            storage_path: Optional custom storage path
             
         Returns:
             AccountManager instance
         """
-        manager = cls()
+        manager = cls(storage_path=storage_path)
         
         # Ensure current auth is in the pool
         if current_auth:
@@ -170,6 +177,8 @@ class AccountManager:
                 )
         
         return manager
+
+
     
     def get_account_count(self) -> int:
         """Get the number of accounts in the pool."""
@@ -571,7 +580,7 @@ class AccountManager:
         storage.active_index_by_family.gemini = self._active_index_by_family.get(MODEL_FAMILY_GEMINI, 0)
         storage.active_index_by_family.claude = self._active_index_by_family.get(MODEL_FAMILY_CLAUDE, 0)
         
-        save_accounts(storage)
+        save_accounts(storage, self._storage_path)
     
     def get_accounts_snapshot(self) -> List[Dict]:
         """Get a snapshot of all accounts for debugging."""

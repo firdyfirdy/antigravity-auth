@@ -33,15 +33,21 @@ By default, the library stores credentials in:
 - **Windows**: `%APPDATA%\antigravity_auth`
 - **Linux/Mac**: `~/.config/antigravity_auth`
 
-You can override this by setting the `ANTIGRAVITY_STORAGE_DIR` environment variable:
-
-```bash
-# Windows
-set ANTIGRAVITY_STORAGE_DIR=C:\My\Custom\Path
-
-# Linux/Mac
-export ANTIGRAVITY_STORAGE_DIR=/path/to/custom/dir
-```
+You can override this by setting the `ANTIGRAVITY_STORAGE_PATH` environment variable to point to a specific file:
+ 
+ ```bash
+ # Windows
+ set ANTIGRAVITY_STORAGE_PATH=C:\My\Custom\path\to\accounts.json
+ 
+ # Linux/Mac
+ export ANTIGRAVITY_STORAGE_PATH=/path/to/custom/accounts.json
+ ```
+ 
+ Or by passing the `--storage-path` flag to any CLI command:
+ 
+ ```bash
+ antigravity-auth auth list --storage-path "C:\My\Custom\accounts.json"
+ ```
 
 ## 🚀 Quick Start (CLI)
 
@@ -176,6 +182,9 @@ from antigravity import AntigravityService
 
 # Initialize service (uses default gemini-3-pro)
 service = AntigravityService()
+
+# Specify custom storage path
+# service = AntigravityService(storage_path="/path/to/accounts.json")
 
 # Or specify a model
 # service = AntigravityService(model="claude-sonnet-4-5")
