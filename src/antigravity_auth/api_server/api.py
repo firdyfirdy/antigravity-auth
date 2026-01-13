@@ -1,6 +1,5 @@
 import time
 from typing import List, Optional
-import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -86,45 +85,55 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def stream_generator(service, prompt, system_prompt, model):
-    # Determine which accounts to use 
-    # NOTE: basic streaming simulation since AntigravityService might not support full streaming yet.
-    # If AntigravityService supports streaming, we should use it.
-    # Assuming standard generic generate currently returns full text.
-    # We will simulate streaming for now to satisfy Client requirements if needed, 
-    # OR better: Implement true streaming in AntigravityService later. 
-    # For this MVP, let's await the response and chunk it (pseudo-streaming) or block.
+    """
+    True real-time streaming generator.
     
-    # Real implementation should call: async for chunk in service.generate_stream(...)
-    
-    response_text = await service.generate(prompt=prompt, system_prompt=system_prompt)
-    
-    # Chunk raw response
-    chunk_size = 20
-    for i in range(0, len(response_text), chunk_size):
-        chunk = response_text[i:i+chunk_size]
-        response = ChatCompletionChunk(
+    Yields SSE events as chunks arrive from the model in real-time.
+    """
+    try:
+        async for chunk in service.generate_stream(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            model=model,
+        ):
+            response = ChatCompletionChunk(
+                model=model,
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=ChatCompletionChunkDelta(content=chunk),
+                        finish_reason=None
+                    )
+                ]
+            )
+            yield f"data: {response.model_dump_json()}\n\n"
+        
+        # Final stop chunk
+        final_response = ChatCompletionChunk(
             model=model,
             choices=[
                 ChatCompletionChunkChoice(
                     index=0,
-                    delta=ChatCompletionChunkDelta(content=chunk),
-                    finish_reason=None
+                    delta=ChatCompletionChunkDelta(content=""),
+                    finish_reason="stop"
                 )
             ]
         )
-        yield f"data: {response.model_dump_json()}\n\n"
-        await asyncio.sleep(0.01) # Simulate network delay
+        yield f"data: {final_response.model_dump_json()}\n\n"
+        yield "data: [DONE]\n\n"
         
-    # Final stop chunk
-    final_response = ChatCompletionChunk(
-        model=model,
-        choices=[
-            ChatCompletionChunkChoice(
-                index=0,
-                delta=ChatCompletionChunkDelta(content=""),
-                finish_reason="stop"
-            )
-        ]
-    )
-    yield f"data: {final_response.model_dump_json()}\n\n"
-    yield "data: [DONE]\n\n"
+    except Exception as e:
+        # Send error as final chunk
+        error_response = ChatCompletionChunk(
+            model=model,
+            choices=[
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=ChatCompletionChunkDelta(content=f"\n\n[Error: {str(e)}]"),
+                    finish_reason="stop"
+                )
+            ]
+        )
+        yield f"data: {error_response.model_dump_json()}\n\n"
+        yield "data: [DONE]\n\n"
+

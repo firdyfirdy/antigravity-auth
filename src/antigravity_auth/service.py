@@ -295,6 +295,114 @@ class AntigravityService:
         
         raise AntigravityError(f"Failed after {max_retries} retries: {last_error}")
     
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        generation_config: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Generate content with real-time streaming.
+        
+        This is an async generator that yields text chunks as they are generated
+        by the model, enabling true real-time streaming responses.
+        
+        Args:
+            prompt: The user prompt
+            system_prompt: Optional system instruction
+            model: Model to use (defaults to instance model)
+            generation_config: Optional generation config
+            
+        Yields:
+            String chunks of generated text as they arrive
+            
+        Raises:
+            NoAccountsError: If no accounts are configured
+            AllAccountsRateLimitedError: If all accounts are rate-limited
+            AntigravityError: For other API errors
+            
+        Example:
+            async for chunk in service.generate_stream("Tell me a story"):
+                print(chunk, end="", flush=True)
+        """
+        effective_model = model or self.model
+        family = get_model_family(effective_model)
+        header_style = get_header_style_from_model(effective_model)
+        
+        manager = self._ensure_account_manager()
+        
+        if manager.get_account_count() == 0:
+            raise NoAccountsError(
+                "No Antigravity accounts configured. Run 'antigravity auth login' to add an account."
+            )
+        
+        # Build contents in Gemini format
+        contents = [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ]
+        
+        # Get next available account
+        account = manager.get_current_or_next_for_family(
+            family=family,
+            model=effective_model,
+            header_style=header_style,
+        )
+        
+        if account is None:
+            wait_time = manager.get_min_wait_time_for_family(family, effective_model)
+            raise AllAccountsRateLimitedError(
+                f"All accounts rate-limited. Retry in {wait_time // 1000}s.",
+                wait_time,
+            )
+        
+        # Get auth for this account
+        auth = await self._get_auth_for_account(account)
+        
+        if not auth or not auth.access:
+            raise AntigravityError("Failed to get access token")
+        
+        # Get project ID
+        project_id = account.project_id or ANTIGRAVITY_DEFAULT_PROJECT_ID
+        
+        # Stream the response
+        async for event in self._client.generate_content_stream(
+            model=effective_model,
+            contents=contents,
+            access_token=auth.access,
+            project_id=project_id,
+            system_instruction=system_prompt,
+            generation_config=generation_config,
+            header_style=header_style,
+        ):
+            if "text" in event:
+                yield event["text"]
+            elif "error" in event:
+                if event.get("status_code") == 429:
+                    retry_after_ms = event.get("retry_after_ms", 60000)
+                    manager.mark_rate_limited(
+                        account=account,
+                        retry_after_ms=retry_after_ms,
+                        family=family,
+                        header_style=header_style,
+                        model=effective_model,
+                    )
+                    await manager.save_to_disk()
+                    raise AllAccountsRateLimitedError(
+                        f"Rate limited. Retry in {retry_after_ms // 1000}s.",
+                        retry_after_ms,
+                    )
+                else:
+                    raise AntigravityError(event.get("message", "Stream error"))
+            elif "done" in event:
+                # Stream completed successfully
+                account.consecutive_failures = 0
+                await manager.save_to_disk()
+                return
+    
     def generate_sync(
         self,
         prompt: str,

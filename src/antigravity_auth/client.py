@@ -390,6 +390,38 @@ def parse_sse_response(text: str) -> List[Dict[str, Any]]:
     return events
 
 
+def extract_text_from_sse_chunk(event: Dict[str, Any]) -> str:
+    """
+    Extract text content from a single SSE event chunk.
+    
+    Used for real-time streaming to yield text as it arrives.
+    
+    Args:
+        event: Single parsed SSE event
+        
+    Returns:
+        Extracted text content from this chunk
+    """
+    def extract_text_from_parts(parts: list) -> str:
+        """Extract text from parts, skipping thinking blocks."""
+        texts = []
+        for part in parts:
+            # Only extract regular text, not thoughts
+            if isinstance(part, dict) and "text" in part and "thought" not in part:
+                texts.append(part["text"])
+        return "".join(texts)
+    
+    inner = event.get("response", event)
+    candidates = inner.get("candidates", [])
+    for candidate in candidates:
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
+        text = extract_text_from_parts(parts)
+        if text:
+            return text
+    return ""
+
+
 def extract_text_from_response(response_body: Any, streaming: bool = False) -> str:
     """
     Extract text content from an Antigravity API response.
@@ -583,3 +615,160 @@ class AntigravityClient:
         )
         
         return await self.execute(request)
+    
+    async def stream_execute(
+        self,
+        request: PreparedRequest,
+        fallback_endpoints: Optional[List[str]] = None,
+    ):
+        """
+        Execute a prepared request and yield SSE chunks in real-time.
+        
+        This is an async generator that yields each SSE event as it arrives,
+        enabling true real-time streaming.
+        
+        Args:
+            request: PreparedRequest to execute (must have streaming=True)
+            fallback_endpoints: Optional list of fallback endpoints
+            
+        Yields:
+            Dict containing either 'chunk' (parsed SSE event) or 'error' (error info)
+        """
+        endpoints = fallback_endpoints or ANTIGRAVITY_ENDPOINT_FALLBACKS
+        
+        for endpoint in endpoints:
+            # Update URL for this endpoint
+            url = request.url
+            for ep in ANTIGRAVITY_ENDPOINT_FALLBACKS + [GEMINI_CLI_ENDPOINT]:
+                if ep in url:
+                    url = url.replace(ep, endpoint)
+                    break
+            
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    async with client.stream(
+                        method=request.method,
+                        url=url,
+                        headers=request.headers,
+                        content=request.body,
+                    ) as response:
+                        # Handle rate limiting
+                        if response.status_code == 429:
+                            # Try to read the body for retry info
+                            body_text = await response.aread()
+                            try:
+                                body = json.loads(body_text)
+                            except:
+                                body = {}
+                            retry_after = parse_retry_after(response) or 60000
+                            yield {
+                                "error": True,
+                                "status_code": 429,
+                                "retry_after_ms": retry_after,
+                                "body": body,
+                            }
+                            return
+                        
+                        # Handle server errors - try next endpoint
+                        if response.status_code in (403, 404, 500, 502, 503, 504):
+                            continue
+                        
+                        # Handle other errors
+                        if response.status_code != 200:
+                            body_text = await response.aread()
+                            yield {
+                                "error": True,
+                                "status_code": response.status_code,
+                                "message": f"HTTP {response.status_code}",
+                                "body": body_text.decode("utf-8", errors="replace"),
+                            }
+                            return
+                        
+                        # Stream SSE events
+                        buffer = ""
+                        async for chunk in response.aiter_text():
+                            buffer += chunk
+                            
+                            # Process complete SSE events
+                            while "\n" in buffer:
+                                line, buffer = buffer.split("\n", 1)
+                                line = line.strip()
+                                
+                                if line.startswith("data:"):
+                                    data = line[5:].strip()
+                                    
+                                    if data == "[DONE]":
+                                        yield {"done": True}
+                                        return
+                                    
+                                    if data:
+                                        try:
+                                            event = json.loads(data)
+                                            yield {"chunk": event}
+                                        except json.JSONDecodeError:
+                                            pass
+                        
+                        # Successful stream completed
+                        yield {"done": True}
+                        return
+                        
+            except httpx.TimeoutException:
+                continue
+            except Exception as e:
+                continue
+        
+        # All endpoints failed
+        yield {
+            "error": True,
+            "status_code": 0,
+            "message": "All endpoints failed",
+        }
+    
+    async def generate_content_stream(
+        self,
+        model: str,
+        contents: List[Dict[str, Any]],
+        access_token: str,
+        project_id: Optional[str] = None,
+        system_instruction: Optional[str] = None,
+        generation_config: Optional[Dict[str, Any]] = None,
+        header_style: Optional[str] = None,
+    ):
+        """
+        Generate content with real-time streaming.
+        
+        This is an async generator that yields text chunks as they arrive.
+        
+        Args:
+            model: Model name
+            contents: Conversation contents
+            access_token: OAuth access token
+            project_id: Antigravity project ID
+            system_instruction: Optional system instruction
+            generation_config: Optional generation config
+            header_style: Optional header style override
+            
+        Yields:
+            Dict with 'text' (chunk text), 'error' (error info), or 'done' (completion)
+        """
+        request = prepare_request(
+            model=model,
+            contents=contents,
+            access_token=access_token,
+            project_id=project_id,
+            system_instruction=system_instruction,
+            generation_config=generation_config,
+            streaming=True,  # Always streaming
+            header_style=header_style,
+        )
+        
+        async for event in self.stream_execute(request):
+            if "chunk" in event:
+                text = extract_text_from_sse_chunk(event["chunk"])
+                if text:
+                    yield {"text": text}
+            elif "error" in event:
+                yield event
+            elif "done" in event:
+                yield {"done": True}
+
