@@ -86,7 +86,8 @@ This library automatically routes requests to the appropriate quota based on the
 | `gemini-2.5-flash` | **Gemini CLI** | Fast, cost-effective |
 | **Claude (Anthropic)** | | |
 | `claude-sonnet-4-5` | **Antigravity** | SOTA reasoning (proxied) |
-| `claude-opus-4-5` | **Antigravity** | Maximum capability (proxied) |
+| `claude-sonnet-4-5-thinking` | **Antigravity** | SOTA reasoning (proxied) |
+| `claude-opus-4-5-thinking` | **Antigravity** | Maximum capability (proxied) |
 
 > **Note:** Models using the **Antigravity** quota require special system instructions, which this library handles automatically.
 
