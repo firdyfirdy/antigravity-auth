@@ -362,6 +362,95 @@ def auth_test(
     except AntigravityError as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@auth_app.command("test-image")
+def auth_test_image(
+    ctx: typer.Context,
+    prompt: str = typer.Option("A cute cat wearing a tiny hat, digital art style", "--prompt", "-p", help="Image generation prompt"),
+    model: str = typer.Option("gemini-3-pro-image", "--model", "-m", help="Image model to use"),
+    aspect_ratio: str = typer.Option("1:1", "--aspect-ratio", "-a", help="Aspect ratio (1:1, 16:9, 9:16, etc.)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path (default: generated_image.png)"),
+    storage_path: Optional[str] = typer.Option(
+        None,
+        "--storage-path",
+        help="Path to custom accounts storage file",
+        envvar="ANTIGRAVITY_STORAGE_PATH"
+    ),
+):
+    """
+    Test image generation with a sample prompt.
+    """
+    import base64
+    from pathlib import Path
+
+    console.print(f"\n[bold blue]Testing Image Generation with {model}[/bold blue]\n")
+    console.print(f"[dim]Prompt: {prompt}[/dim]")
+    console.print(f"[dim]Aspect Ratio: {aspect_ratio}[/dim]\n")
+
+    try:
+        service = AntigravityService(model=model, storage_path=storage_path)
+
+        console.print("[dim]Generating image...[/dim]")
+
+        images = service.generate_image_sync(
+            prompt=prompt,
+            model=model,
+            aspect_ratio=aspect_ratio,
+        )
+
+        if not images:
+            console.print("[red]No images were generated.[/red]")
+            raise typer.Exit(1)
+
+        # Save the first image
+        image_data = images[0]
+        mime_type = image_data.get("mimeType", "image/png")
+        b64_data = image_data.get("data", "")
+
+        # Determine file extension from mime type
+        ext_map = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+        }
+        ext = ext_map.get(mime_type, ".png")
+
+        # Determine output path
+        if output:
+            output_path = Path(output)
+        else:
+            output_path = Path(f"generated_image{ext}")
+
+        # Decode and save
+        image_bytes = base64.b64decode(b64_data)
+        output_path.write_bytes(image_bytes)
+
+        console.print(f"\n[green]✅ Image generated successfully![/green]")
+        console.print(f"[bold]Saved to:[/bold] {output_path.absolute()}")
+        console.print(f"[bold]Size:[/bold] {len(image_bytes):,} bytes")
+        console.print(f"[bold]Format:[/bold] {mime_type}")
+
+        if len(images) > 1:
+            console.print(f"[dim]({len(images)} images generated, saved the first one)[/dim]")
+
+        console.print("\n[green]✅ Image generation working![/green]\n")
+
+    except NoAccountsError:
+        console.print("[red]No accounts configured. Run 'antigravity auth login' first.[/red]")
+        raise typer.Exit(1)
+    except AllAccountsRateLimitedError as e:
+        console.print(f"[yellow]All accounts rate-limited. Try again in {e.wait_time_ms // 1000}s.[/yellow]")
+        raise typer.Exit(1)
+    except AntigravityError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        raise typer.Exit(1)
+
+
 @app.command("serve")
 def serve(
     ctx: typer.Context,

@@ -128,6 +128,7 @@ HEADER_STYLE_GEMINI_CLI = "gemini-cli"
 
 MODEL_FAMILY_GEMINI = "gemini"
 MODEL_FAMILY_CLAUDE = "claude"
+MODEL_FAMILY_IMAGE = "image"
 
 # =============================================================================
 # Antigravity System Instruction (Required for API compatibility)

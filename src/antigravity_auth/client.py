@@ -25,7 +25,58 @@ from .constants import (
     HEADER_STYLE_GEMINI_CLI,
     MODEL_FAMILY_CLAUDE,
     MODEL_FAMILY_GEMINI,
+    MODEL_FAMILY_IMAGE,
 )
+
+
+# =============================================================================
+# Image Generation Constants
+# =============================================================================
+
+VALID_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
+
+# Safety settings for image generation (permissive for creative content)
+IMAGE_GENERATION_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
+# System instruction for image generation models
+IMAGE_GENERATION_SYSTEM_INSTRUCTION = "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request."
+
+
+def is_image_generation_model(model: str) -> bool:
+    """
+    Check if a model is an image generation model.
+
+    Args:
+        model: Model name
+
+    Returns:
+        True if the model generates images
+    """
+    lower = model.lower()
+    return "image" in lower or "imagen" in lower
+
+
+def build_image_generation_config(aspect_ratio: str = "1:1") -> dict:
+    """
+    Build image generation config with aspect ratio.
+
+    Args:
+        aspect_ratio: Desired aspect ratio (e.g., "1:1", "16:9")
+
+    Returns:
+        Image generation config dict
+    """
+    if aspect_ratio not in VALID_ASPECT_RATIOS:
+        print(f"[gemini] Invalid aspect ratio \"{aspect_ratio}\". Using default \"1:1\". Valid values: {', '.join(VALID_ASPECT_RATIOS)}")
+        aspect_ratio = "1:1"
+
+    return {"aspectRatio": aspect_ratio}
 
 
 @dataclass
@@ -57,18 +108,21 @@ class AntigravityResponse:
 def get_model_family(model: str) -> str:
     """
     Determine the model family from a model name.
-    
+
     Args:
         model: Model name
-        
+
     Returns:
         Model family (gemini or claude)
+        Note: Image models are treated as Gemini family for quota purposes
     """
     lower_model = model.lower()
-    
+
     if "claude" in lower_model or "opus" in lower_model or "sonnet" in lower_model:
         return MODEL_FAMILY_CLAUDE
-    
+
+    # Image models are treated as Gemini family for quota routing
+    # (they use the same Antigravity quota pool)
     return MODEL_FAMILY_GEMINI
 
 
@@ -181,12 +235,13 @@ def prepare_request(
     system_instruction: Optional[str] = None,
     generation_config: Optional[Dict[str, Any]] = None,
     streaming: bool = True,
+    image_config: Optional[Dict[str, Any]] = None,
 ) -> PreparedRequest:
     """
     Prepare a request for the Antigravity API.
-    
+
     Args:
-        model: Model name (e.g., "gemini-2.5-pro", "gemini-3-pro")
+        model: Model name (e.g., "gemini-2.5-pro", "gemini-3-pro", "gemini-3-pro-image")
         contents: Conversation contents in Gemini format
         access_token: OAuth access token
         project_id: Antigravity project ID
@@ -195,19 +250,27 @@ def prepare_request(
         system_instruction: Optional system instruction
         generation_config: Optional generation config
         streaming: Whether to use streaming
-        
+        image_config: Optional image generation config (aspectRatio, etc.)
+
     Returns:
         PreparedRequest ready for execution
     """
     # Strip :antigravity suffix first
     model_clean = strip_model_suffix(model)
-    
-    # Resolve Gemini 3 model name and thinking level
-    effective_model, thinking_level = resolve_gemini3_model(model_clean)
-    
+
+    # Check if this is an image generation model
+    is_image_model = is_image_generation_model(model_clean)
+
+    # Resolve Gemini 3 model name and thinking level (skip for image models)
+    if is_image_model:
+        effective_model = model_clean
+        thinking_level = None
+    else:
+        effective_model, thinking_level = resolve_gemini3_model(model_clean)
+
     effective_project_id = project_id or ANTIGRAVITY_DEFAULT_PROJECT_ID
     effective_header_style = header_style or get_header_style_from_model(model)
-    
+
     # Select endpoint
     if endpoint:
         effective_endpoint = endpoint
@@ -215,41 +278,63 @@ def prepare_request(
         effective_endpoint = GEMINI_CLI_ENDPOINT
     else:
         effective_endpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
-    
+
     # Build the Antigravity-style URL
     action = "streamGenerateContent" if streaming else "generateContent"
     url = f"{effective_endpoint}/v1internal:{action}"
     if streaming:
         url += "?alt=sse"
-    
+
     # Build generation config with thinking level for Gemini 3
     gen_config = dict(generation_config) if generation_config else {}
-    
-    if thinking_level and "gemini-3" in effective_model.lower():
+
+    if is_image_model:
+        # Image generation specific config (matching reference implementation exactly)
+        # Add imageConfig with aspect ratio
+        if image_config:
+            gen_config["imageConfig"] = image_config
+        # Remove any thinkingConfig that might have been set
+        if "thinkingConfig" in gen_config:
+            del gen_config["thinkingConfig"]
+        # Set candidateCount for image generation
+        if "candidateCount" not in gen_config:
+            gen_config["candidateCount"] = 1
+    elif thinking_level and "gemini-3" in effective_model.lower():
         # Add thinkingConfig for Gemini 3 models
         gen_config["thinkingConfig"] = {
             "includeThoughts": True,
             "thinkingLevel": thinking_level,
         }
-    
+
     # Build request body
     inner_request = {
         "contents": contents,
     }
-    
+
     if gen_config:
         inner_request["generationConfig"] = gen_config
-    
+
+    # Add safety settings for image models
+    if is_image_model:
+        inner_request["safetySettings"] = IMAGE_GENERATION_SAFETY_SETTINGS
+        # Image models don't support tools - remove them entirely
+        # (these would be set if coming from a different code path)
+
     # Inject systemInstruction with role="user" (required for Antigravity compatibility)
     # Per CLIProxyAPI v6.6.89: must prepend ANTIGRAVITY_SYSTEM_INSTRUCTION
-    if effective_header_style == HEADER_STYLE_ANTIGRAVITY:
+    if is_image_model:
+        # Image models get a simple image generation instruction (not the agentic coding one)
+        inner_request["systemInstruction"] = {
+            "parts": [{"text": IMAGE_GENERATION_SYSTEM_INSTRUCTION}]
+        }
+    elif effective_header_style == HEADER_STYLE_ANTIGRAVITY:
         # For Antigravity quota, inject the required system instruction
         if system_instruction:
             # Prepend Antigravity instruction to user's instruction
             combined_instruction = ANTIGRAVITY_SYSTEM_INSTRUCTION + "\n\n" + system_instruction
         else:
             combined_instruction = ANTIGRAVITY_SYSTEM_INSTRUCTION
-        
+
         inner_request["systemInstruction"] = {
             "role": "user",
             "parts": [{"text": combined_instruction}]
@@ -259,7 +344,7 @@ def prepare_request(
         inner_request["systemInstruction"] = {
             "parts": [{"text": system_instruction}]
         }
-    
+
     # Wrap in Antigravity format
     wrapped_body = {
         "project": effective_project_id,
@@ -269,20 +354,20 @@ def prepare_request(
         "userAgent": "antigravity",
         "requestId": f"agent-{uuid.uuid4()}",
     }
-    
+
     # Select headers
     if effective_header_style == HEADER_STYLE_GEMINI_CLI:
         selected_headers = GEMINI_CLI_HEADERS
     else:
         selected_headers = ANTIGRAVITY_HEADERS
-    
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream" if streaming else "application/json",
         **selected_headers,
     }
-    
+
     return PreparedRequest(
         url=url,
         method="POST",
@@ -472,6 +557,57 @@ def extract_text_from_response(response_body: Any, streaming: bool = False) -> s
     return ""
 
 
+def extract_images_from_response(response_body: Any, streaming: bool = False) -> List[Dict[str, str]]:
+    """
+    Extract image data from an Antigravity API response.
+
+    For image generation models, parts may contain:
+    - {"inlineData": {"mimeType": "image/png", "data": "base64..."}} - Image data
+
+    Args:
+        response_body: Parsed response body
+        streaming: Whether this was a streaming response
+
+    Returns:
+        List of dicts with 'mimeType' and 'data' (base64) keys
+    """
+    def extract_images_from_parts(parts: list) -> List[Dict[str, str]]:
+        """Extract images from parts."""
+        images = []
+        for part in parts:
+            if isinstance(part, dict) and "inlineData" in part:
+                inline_data = part["inlineData"]
+                if isinstance(inline_data, dict) and "data" in inline_data:
+                    images.append({
+                        "mimeType": inline_data.get("mimeType", "image/png"),
+                        "data": inline_data["data"],
+                    })
+        return images
+
+    if streaming and isinstance(response_body, list):
+        # Combine images from all streaming events
+        images = []
+        for event in response_body:
+            inner = event.get("response", event)
+            candidates = inner.get("candidates", [])
+            for candidate in candidates:
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                images.extend(extract_images_from_parts(parts))
+        return images
+
+    # Non-streaming response
+    if isinstance(response_body, dict):
+        inner = response_body.get("response", response_body)
+        candidates = inner.get("candidates", [])
+        if candidates:
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            return extract_images_from_parts(parts)
+
+    return []
+
+
 class AntigravityClient:
     """
     HTTP client for making requests to the Antigravity API.
@@ -532,12 +668,17 @@ class AntigravityClient:
                     # Handle rate limiting
                     if response.status_code == 429:
                         retry_after = parse_retry_after(response) or 60000
+                        body = {}
+                        try:
+                            body = response.json() if response.text else {}
+                        except Exception:
+                            pass
                         return AntigravityResponse(
                             success=False,
                             status_code=429,
                             headers=dict(response.headers),
-                            body=response.json() if response.text else {},
-                            error="Rate limited",
+                            body=body,
+                            error=f"Rate limited: {response.text[:500] if response.text else 'No details'}",
                             retry_after_ms=retry_after,
                         )
                     
@@ -586,10 +727,11 @@ class AntigravityClient:
         generation_config: Optional[Dict[str, Any]] = None,
         streaming: bool = True,
         header_style: Optional[str] = None,
+        image_config: Optional[Dict[str, Any]] = None,
     ) -> AntigravityResponse:
         """
         Generate content using the Antigravity API.
-        
+
         Args:
             model: Model name
             contents: Conversation contents
@@ -599,7 +741,8 @@ class AntigravityClient:
             generation_config: Optional generation config
             streaming: Whether to use streaming
             header_style: Optional header style override
-            
+            image_config: Optional image generation config
+
         Returns:
             AntigravityResponse with generated content
         """
@@ -612,8 +755,9 @@ class AntigravityClient:
             generation_config=generation_config,
             streaming=streaming,
             header_style=header_style,
+            image_config=image_config,
         )
-        
+
         return await self.execute(request)
     
     async def stream_execute(

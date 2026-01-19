@@ -15,8 +15,11 @@ from .client import (
     AntigravityClient,
     AntigravityResponse,
     extract_text_from_response,
+    extract_images_from_response,
     get_header_style_from_model,
     get_model_family,
+    is_image_generation_model,
+    build_image_generation_config,
 )
 from .constants import (
     ANTIGRAVITY_DEFAULT_PROJECT_ID,
@@ -548,5 +551,175 @@ class AntigravityService:
                 "email": account.email,
                 "project_id": account.project_id,
             }
-        
+
         return None
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str = "gemini-3-pro-image",
+        aspect_ratio: str = "1:1",
+        max_retries: int = 3,
+    ) -> List[Dict[str, str]]:
+        """
+        Generate images using the Antigravity API.
+
+        This method uses image generation models to create images from text prompts.
+
+        Args:
+            prompt: The text prompt describing the image to generate
+            model: Image generation model to use (default: gemini-3-pro-image)
+            aspect_ratio: Aspect ratio for generated images (e.g., "1:1", "16:9")
+            max_retries: Maximum number of account rotation retries
+
+        Returns:
+            List of dicts with 'mimeType' and 'data' (base64) keys
+
+        Raises:
+            NoAccountsError: If no accounts are configured
+            AllAccountsRateLimitedError: If all accounts are rate-limited
+            AntigravityError: For other API errors
+        """
+        family = get_model_family(model)
+        header_style = get_header_style_from_model(model)
+
+        manager = self._ensure_account_manager()
+
+        if manager.get_account_count() == 0:
+            raise NoAccountsError(
+                "No Antigravity accounts configured. Run 'antigravity auth login' to add an account."
+            )
+
+        # Build contents in Gemini format
+        contents = [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}]
+            }
+        ]
+
+        # Build image generation config
+        image_config = build_image_generation_config(aspect_ratio)
+
+        retries = 0
+        last_error: Optional[str] = None
+
+        while retries < max_retries:
+            # Get next available account
+            account = manager.get_current_or_next_for_family(
+                family=family,
+                model=model,
+                header_style=header_style,
+            )
+
+            if account is None:
+                # All accounts rate-limited
+                wait_time = manager.get_min_wait_time_for_family(family, model)
+                max_wait_ms = self.max_rate_limit_wait_seconds * 1000
+
+                if max_wait_ms > 0 and wait_time > max_wait_ms:
+                    raise AllAccountsRateLimitedError(
+                        f"All accounts rate-limited. Retry in {wait_time // 1000}s.",
+                        wait_time,
+                    )
+
+                # Wait and retry
+                if not self.quiet_mode:
+                    print(f"All accounts rate-limited. Waiting {wait_time // 1000}s...")
+                await asyncio.sleep(wait_time / 1000)
+                continue
+
+            # Get auth for this account
+            try:
+                auth = await self._get_auth_for_account(account)
+            except TokenRefreshFailedError:
+                retries += 1
+                continue
+
+            if not auth or not auth.access:
+                retries += 1
+                last_error = "Failed to get access token"
+                continue
+
+            # Get project ID
+            project_id = account.project_id or ANTIGRAVITY_DEFAULT_PROJECT_ID
+
+            # Make the request (non-streaming for image generation)
+            response = await self._client.generate_content(
+                model=model,
+                contents=contents,
+                access_token=auth.access,
+                project_id=project_id,
+                streaming=False,
+                header_style=header_style,
+                image_config=image_config,
+            )
+
+            # Handle rate limiting
+            if response.status_code == 429:
+                retry_after_ms = response.retry_after_ms or 60000
+
+                if retry_after_ms <= SHORT_RETRY_THRESHOLD_MS:
+                    # Short retry - wait and try same account
+                    if not self.quiet_mode:
+                        print(f"Rate limited. Retrying in {retry_after_ms // 1000}s...")
+                    await asyncio.sleep(retry_after_ms / 1000)
+                    continue
+
+                # Mark account as rate-limited
+                manager.mark_rate_limited(
+                    account=account,
+                    retry_after_ms=retry_after_ms,
+                    family=family,
+                    header_style=header_style,
+                    model=model,
+                )
+                await manager.save_to_disk()
+
+                retries += 1
+                last_error = f"Rate limited for {retry_after_ms // 1000}s"
+                continue
+
+            # Handle success
+            if response.success:
+                account.consecutive_failures = 0
+                await manager.save_to_disk()
+                images = extract_images_from_response(response.body, streaming=False)
+                if images:
+                    return images
+                # If no images found, try to get text response as fallback
+                text = extract_text_from_response(response.body, streaming=False)
+                if text:
+                    raise AntigravityError(f"Image generation failed: {text}")
+                raise AntigravityError("No images generated")
+
+            # Handle other errors
+            last_error = response.error or "Unknown error"
+            retries += 1
+
+        raise AntigravityError(f"Failed after {max_retries} retries: {last_error}")
+
+    def generate_image_sync(
+        self,
+        prompt: str,
+        model: str = "gemini-3-pro-image",
+        aspect_ratio: str = "1:1",
+    ) -> List[Dict[str, str]]:
+        """
+        Synchronous wrapper for generate_image().
+
+        Args:
+            prompt: The text prompt describing the image to generate
+            model: Image generation model to use
+            aspect_ratio: Aspect ratio for generated images
+
+        Returns:
+            List of dicts with 'mimeType' and 'data' (base64) keys
+        """
+        return asyncio.run(
+            self.generate_image(
+                prompt=prompt,
+                model=model,
+                aspect_ratio=aspect_ratio,
+            )
+        )

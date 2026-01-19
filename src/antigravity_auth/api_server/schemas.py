@@ -40,3 +40,31 @@ class ChatCompletionChunk(BaseModel):
     created: int = Field(default_factory=lambda: 0)
     model: str
     choices: List[ChatCompletionChunkChoice]
+
+
+# =============================================================================
+# Image Generation Schemas (OpenAI-compatible)
+# =============================================================================
+
+class ImageGenerationRequest(BaseModel):
+    """Request schema for image generation (OpenAI-compatible)."""
+    prompt: str
+    model: str = "gemini-3-pro-image"
+    n: int = 1  # Number of images (only 1 supported for now)
+    size: Optional[str] = "1024x1024"  # Maps to aspect ratio
+    response_format: str = "b64_json"  # b64_json or url
+    quality: Optional[str] = None  # Not used but accepted for compatibility
+    style: Optional[str] = None  # Not used but accepted for compatibility
+
+
+class ImageData(BaseModel):
+    """Individual image data in response."""
+    b64_json: Optional[str] = None  # Base64 encoded image data
+    url: Optional[str] = None  # URL if saved to disk
+    revised_prompt: Optional[str] = None  # The prompt that was used
+
+
+class ImageGenerationResponse(BaseModel):
+    """Response schema for image generation (OpenAI-compatible)."""
+    created: int = Field(default_factory=lambda: 0)
+    data: List[ImageData]
